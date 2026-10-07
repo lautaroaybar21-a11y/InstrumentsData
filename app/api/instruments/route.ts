@@ -31,7 +31,14 @@ async function savePhoto(file: File): Promise<string | null> {
       return upload.url;
     }
   } catch (error) {
-    console.warn("Blob upload failed. Falling back to local storage only in development.", error);
+    console.error("Blob upload failed in Vercel runtime.", {
+      blobTokenPresent: !!getBlobToken(),
+      envKeys: Object.keys(process.env)
+        .filter((key) => key.toLowerCase().includes("blob") || key.toLowerCase().includes("postg"))
+        .sort(),
+      error,
+    });
+    throw error;
   }
 
   const isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
