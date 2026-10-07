@@ -1,7 +1,51 @@
-import { put } from "@vercel/blob";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
+
 import { NextResponse } from "next/server";
 
-import { createInstrument } from "@/lib/db";
+import { createInstrument, getInstruments } from "@/lib/db";
+
+async function savePhoto(file: File): Promise<string | null> {
+  if (!file || file.size === 0) {
+    return null;
+  }
+
+  const filename = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+
+  try {
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const { put } = await import("@vercel/blob");
+      const upload = await put(filename, file, {
+        access: "public",
+      });
+      return upload.url;
+    }
+  } catch (error) {
+    console.warn("Blob upload failed. Falling back to local storage only in development.", error);
+  }
+
+  const isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
+
+  if (isVercelRuntime) {
+    throw new Error(
+      "No hay un storage público configurado para Vercel. Creá un Blob público y definí BLOB_READ_WRITE_TOKEN.",
+    );
+  }
+
+  const uploadsDir = path.join(process.cwd(), "public", "uploads");
+  await mkdir(uploadsDir, { recursive: true });
+
+  const filePath = path.join(uploadsDir, filename);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(filePath, buffer);
+
+  return `/uploads/${filename}`;
+}
+
+export async function GET() {
+  const instruments = await getInstruments();
+  return NextResponse.json({ instruments });
+}
 
 export async function POST(request: Request) {
   try {
@@ -21,12 +65,8 @@ export async function POST(request: Request) {
 
     let photoUrl: string | null = null;
 
-    if (photo && typeof photo !== "string" && photo.size > 0) {
-      const filename = `${Date.now()}-${photo.name.replace(/\s+/g, "-")}`;
-      const upload = await put(filename, photo, {
-        access: "public",
-      });
-      photoUrl = upload.url;
+    if (photo && typeof photo !== "string") {
+      photoUrl = await savePhoto(photo);
     }
 
     const instrument = await createInstrument({

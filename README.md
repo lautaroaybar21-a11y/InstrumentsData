@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AYBAR Instruments
 
-## Getting Started
+Aplicación para registrar instrumentos con información del usuario, nombre del instrumento, número de parte, número de serie y foto asociada.
 
-First, run the development server:
+## Funcionalidad
+- CRUD de instrumentos
+- Registro de usuario
+- Número de parte
+- Número de serie
+- Subida de foto
+- La foto se guarda como archivo separado
+- La base de datos guarda la URL o la ruta de la foto
+
+## Arquitectura
+La app guarda la foto fuera de la base de datos y solo almacena la referencia en la BD.
+
+### En desarrollo/local
+Si no hay un storage configurado, la app guarda la imagen en:
+- public/uploads
+
+y almacena la ruta relativa en la base de datos, por ejemplo:
+- /uploads/archivo.jpg
+
+### En producción en Vercel
+Se recomienda usar Vercel Blob con acceso público.
+
+Variables de entorno necesarias:
+- POSTGRES_URL
+- BLOB_READ_WRITE_TOKEN
+
+La variable BLOB_READ_WRITE_TOKEN debe apuntar a un Blob Store configurado como public.
+
+Si el Blob está configurado como private, la app no podrá devolver una URL pública para la foto.
+
+## Comandos locales
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd "C:\Users\Win11\AYBARinstruments\instrumentsdata"
+npm install
+npm run dev -- --hostname 0.0.0.0 --port 3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrir:
+- http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy en Vercel
+1. Crear un Blob Storage en Vercel
+2. Elegir tipo público
+3. Copiar el token
+4. Ir a Project > Settings > Environment Variables
+5. Agregar:
+   BLOB_READ_WRITE_TOKEN=tu_token
+6. Hacer deploy
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Nota
+La base de datos guarda dónde está la foto, no la imagen en sí.
