@@ -13,6 +13,10 @@ export type InstrumentRecord = {
   created_at: string;
 };
 
+function getDatabaseUrl() {
+  return process.env.POSTGRES_URL ?? process.env.POSTGREST_URL;
+}
+
 function getLocalDataFilePath() {
   return path.join(process.cwd(), "data", "instruments.json");
 }
@@ -46,7 +50,7 @@ async function writeLocalRecords(records: InstrumentRecord[]) {
 }
 
 export async function ensureSchema() {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     return;
   }
 
@@ -64,7 +68,7 @@ export async function ensureSchema() {
 }
 
 export async function getInstrumentById(id: number): Promise<InstrumentRecord | null> {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     const records = await readLocalRecords();
     return records.find((record) => record.id === id) ?? null;
   }
@@ -78,7 +82,7 @@ export async function getInstrumentById(id: number): Promise<InstrumentRecord | 
 }
 
 export async function getInstruments(): Promise<InstrumentRecord[]> {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     return readLocalRecords();
   }
 
@@ -98,7 +102,7 @@ export async function createInstrument(input: {
   serialNumber: string;
   photoUrl?: string | null;
 }) {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     const records = await readLocalRecords();
 
     const newRecord: InstrumentRecord = {
@@ -137,7 +141,7 @@ export async function updateInstrument(
     photoUrl?: string | null;
   },
 ) {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     const records = await readLocalRecords();
     const updatedRecords = records.map((record) =>
       record.id === id
@@ -182,7 +186,7 @@ export async function updateInstrument(
 }
 
 export async function deleteInstrument(id: number) {
-  if (!process.env.POSTGRES_URL) {
+  if (!getDatabaseUrl()) {
     const records = await readLocalRecords();
     const remaining = records.filter((record) => record.id !== id);
     await writeLocalRecords(remaining);

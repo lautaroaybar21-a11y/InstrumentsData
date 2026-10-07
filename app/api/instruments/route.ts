@@ -5,6 +5,15 @@ import { NextResponse } from "next/server";
 
 import { createInstrument, getInstruments } from "@/lib/db";
 
+function getBlobToken() {
+  return (
+    process.env.BLOB_READ_WRITE_TOKEN ??
+    process.env.BLO_READ_WRITE_TOKEN ??
+    process.env.BLOBSD_READ_WRITE_TOKEN ??
+    process.env.BLOSD_READ_WRITE_TOKEN
+  );
+}
+
 async function savePhoto(file: File): Promise<string | null> {
   if (!file || file.size === 0) {
     return null;
@@ -13,7 +22,8 @@ async function savePhoto(file: File): Promise<string | null> {
   const filename = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
 
   try {
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const blobToken = getBlobToken();
+    if (blobToken) {
       const { put } = await import("@vercel/blob");
       const upload = await put(filename, file, {
         access: "public",
