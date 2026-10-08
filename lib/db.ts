@@ -14,11 +14,35 @@ export type InstrumentRecord = {
 };
 
 function getDatabaseUrl() {
-  return process.env.POSTGRES_URL ?? process.env.POSTGREST_URL;
+  const candidates = [
+    process.env.POSTGRES_URL,
+    process.env.POSTGREST_URL,
+    process.env.POSTGRES_PRISMA_URL,
+    process.env.POSTGRES_URL_NON_POOLING,
+  ];
+
+  return candidates.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+}
+
+async function withDatabaseFallback<T>(action: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
+  const dbUrl = getDatabaseUrl();
+  if (!dbUrl) {
+    return fallback();
+  }
+
+  try {
+    return await action();
+  } catch (error) {
+    console.warn("Database unavailable. Falling back to local JSON data store.", error);
+    return fallback();
+  }
 }
 
 function getLocalDataFilePath() {
-  return path.join(process.cwd(), "data", "instruments.json");
+  const isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
+  return isVercelRuntime
+    ? path.join("/tmp", "instruments-data", "instruments.json")
+    : path.join(process.cwd(), "data", "instruments.json");
 }
 
 async function ensureLocalDataFile() {
@@ -68,31 +92,34 @@ export async function ensureSchema() {
 }
 
 export async function getInstrumentById(id: number): Promise<InstrumentRecord | null> {
-  if (!getDatabaseUrl()) {
-    const records = await readLocalRecords();
-    return records.find((record) => record.id === id) ?? null;
-  }
-
-  await ensureSchema();
-  const { rows } = await sql<InstrumentRecord>`
-    SELECT * FROM instruments WHERE id = ${id}
-  `;
-
-  return rows[0] ?? null;
+  return withDatabaseFallback(
+    async () => {
+      await ensureSchema();
+      const { rows } = await sql<InstrumentRecord>`
+        SELECT * FROM instruments WHERE id = ${id}
+      `;
+      return rows[0] ?? null;
+    },
+    async () => {
+      const records = await readLocalRecords();
+      return records.find((record) => record.id === id) ?? null;
+    },
+  );
 }
 
 export async function getInstruments(): Promise<InstrumentRecord[]> {
-  if (!getDatabaseUrl()) {
-    return readLocalRecords();
-  }
+  return withDatabaseFallback(
+    async () => {
+      await ensureSchema();
 
-  await ensureSchema();
+      const { rows } = await sql<InstrumentRecord>`
+        SELECT * FROM instruments ORDER BY created_at DESC
+      `;
 
-  const { rows } = await sql<InstrumentRecord>`
-    SELECT * FROM instruments ORDER BY created_at DESC
-  `;
-
-  return rows;
+      return rows;
+    },
+    async () => readLocalRecords(),
+  );
 }
 
 export async function createInstrument(input: {
@@ -102,33 +129,36 @@ export async function createInstrument(input: {
   serialNumber: string;
   photoUrl?: string | null;
 }) {
-  if (!getDatabaseUrl()) {
-    const records = await readLocalRecords();
+  return withDatabaseFallback(
+    async () => {
+      await ensureSchema();
 
-    const newRecord: InstrumentRecord = {
-      id: Date.now(),
-      user_name: input.userName,
-      instrument_name: input.instrumentName,
-      part_number: input.partNumber,
-      serial_number: input.serialNumber,
-      photo_url: input.photoUrl ?? null,
-      created_at: new Date().toISOString(),
-    };
+      const { rows } = await sql<InstrumentRecord>`
+        INSERT INTO instruments (user_name, instrument_name, part_number, serial_number, photo_url)
+        VALUES (${input.userName}, ${input.instrumentName}, ${input.partNumber}, ${input.serialNumber}, ${input.photoUrl ?? null})
+        RETURNING *
+      `;
 
-    const updatedRecords = [newRecord, ...records];
-    await writeLocalRecords(updatedRecords);
-    return newRecord;
-  }
+      return rows[0];
+    },
+    async () => {
+      const records = await readLocalRecords();
 
-  await ensureSchema();
+      const newRecord: InstrumentRecord = {
+        id: Date.now(),
+        user_name: input.userName,
+        instrument_name: input.instrumentName,
+        part_number: input.partNumber,
+        serial_number: input.serialNumber,
+        photo_url: input.photoUrl ?? null,
+        created_at: new Date().toISOString(),
+      };
 
-  const { rows } = await sql<InstrumentRecord>`
-    INSERT INTO instruments (user_name, instrument_name, part_number, serial_number, photo_url)
-    VALUES (${input.userName}, ${input.instrumentName}, ${input.partNumber}, ${input.serialNumber}, ${input.photoUrl ?? null})
-    RETURNING *
-  `;
-
-  return rows[0];
+      const updatedRecords = [newRecord, ...records];
+      await writeLocalRecords(updatedRecords);
+      return newRecord;
+    },
+  );
 }
 
 export async function updateInstrument(
@@ -141,58 +171,64 @@ export async function updateInstrument(
     photoUrl?: string | null;
   },
 ) {
-  if (!getDatabaseUrl()) {
-    const records = await readLocalRecords();
-    const updatedRecords = records.map((record) =>
-      record.id === id
-        ? {
-            ...record,
-            user_name: input.userName,
-            instrument_name: input.instrumentName,
-            part_number: input.partNumber,
-            serial_number: input.serialNumber,
-            photo_url: input.photoUrl ?? record.photo_url ?? null,
-            created_at: record.created_at,
-          }
-        : record,
-    );
+  return withDatabaseFallback(
+    async () => {
+      await ensureSchema();
 
-    await writeLocalRecords(updatedRecords);
-    const item = updatedRecords.find((record) => record.id === id);
-    if (!item) {
-      throw new Error("Instrument not found");
-    }
-    return item;
-  }
+      const { rows } = await sql<InstrumentRecord>`
+        UPDATE instruments
+        SET user_name = ${input.userName},
+            instrument_name = ${input.instrumentName},
+            part_number = ${input.partNumber},
+            serial_number = ${input.serialNumber},
+            photo_url = ${input.photoUrl ?? null}
+        WHERE id = ${id}
+        RETURNING *
+      `;
 
-  await ensureSchema();
+      if (!rows[0]) {
+        throw new Error("Instrument not found");
+      }
 
-  const { rows } = await sql<InstrumentRecord>`
-    UPDATE instruments
-    SET user_name = ${input.userName},
-        instrument_name = ${input.instrumentName},
-        part_number = ${input.partNumber},
-        serial_number = ${input.serialNumber},
-        photo_url = ${input.photoUrl ?? null}
-    WHERE id = ${id}
-    RETURNING *
-  `;
+      return rows[0];
+    },
+    async () => {
+      const records = await readLocalRecords();
+      const updatedRecords = records.map((record) =>
+        record.id === id
+          ? {
+              ...record,
+              user_name: input.userName,
+              instrument_name: input.instrumentName,
+              part_number: input.partNumber,
+              serial_number: input.serialNumber,
+              photo_url: input.photoUrl ?? record.photo_url ?? null,
+              created_at: record.created_at,
+            }
+          : record,
+      );
 
-  if (!rows[0]) {
-    throw new Error("Instrument not found");
-  }
-
-  return rows[0];
+      await writeLocalRecords(updatedRecords);
+      const item = updatedRecords.find((record) => record.id === id);
+      if (!item) {
+        throw new Error("Instrument not found");
+      }
+      return item;
+    },
+  );
 }
 
 export async function deleteInstrument(id: number) {
-  if (!getDatabaseUrl()) {
-    const records = await readLocalRecords();
-    const remaining = records.filter((record) => record.id !== id);
-    await writeLocalRecords(remaining);
-    return;
-  }
-
-  await ensureSchema();
-  await sql`DELETE FROM instruments WHERE id = ${id}`;
+  return withDatabaseFallback(
+    async () => {
+      await ensureSchema();
+      await sql`DELETE FROM instruments WHERE id = ${id}`;
+    },
+    async () => {
+      const records = await readLocalRecords();
+      const remaining = records.filter((record) => record.id !== id);
+      await writeLocalRecords(remaining);
+      return;
+    },
+  );
 }

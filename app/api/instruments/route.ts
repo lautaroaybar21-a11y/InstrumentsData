@@ -14,6 +14,15 @@ function getBlobToken() {
   );
 }
 
+async function fileToDataUrl(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const binary = Array.from(bytes)
+    .map((byte) => String.fromCharCode(byte))
+    .join("");
+  const base64 = Buffer.from(binary, "binary").toString("base64");
+  return `data:${file.type || "application/octet-stream"};base64,${base64}`;
+}
+
 async function savePhoto(file: File): Promise<string | null> {
   if (!file || file.size === 0) {
     return null;
@@ -31,22 +40,13 @@ async function savePhoto(file: File): Promise<string | null> {
       return upload.url;
     }
   } catch (error) {
-    console.error("Blob upload failed in Vercel runtime.", {
-      blobTokenPresent: !!getBlobToken(),
-      envKeys: Object.keys(process.env)
-        .filter((key) => key.toLowerCase().includes("blob") || key.toLowerCase().includes("postg"))
-        .sort(),
-      error,
-    });
-    throw error;
+    console.warn("Blob upload failed. Falling back to a data-URL payload for Vercel compatibility.", error);
   }
 
   const isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
 
   if (isVercelRuntime) {
-    throw new Error(
-      "No hay un storage público configurado para Vercel. Creá un Blob público y definí BLOB_READ_WRITE_TOKEN.",
-    );
+    return fileToDataUrl(file);
   }
 
   const uploadsDir = path.join(process.cwd(), "public", "uploads");
